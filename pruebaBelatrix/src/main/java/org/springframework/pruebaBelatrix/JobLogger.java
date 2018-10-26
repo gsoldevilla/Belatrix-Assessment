@@ -3,6 +3,7 @@ package org.springframework.pruebaBelatrix;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.text.DateFormat;
 import java.util.Date;
@@ -20,12 +21,12 @@ public class JobLogger {
 	private static boolean logWarning;
 	private static boolean logError;
 	private static boolean logToDatabase;
-	private boolean initialized;
-	private static Map dbParams;
+	private static Map<String, String> dbParams;
 	private static Logger logger;
+	private static Connection conexion;
 
 	public JobLogger(boolean logToFileParam, boolean logToConsoleParam, boolean logToDatabaseParam,
-			boolean logMessageParam, boolean logWarningParam, boolean logErrorParam, Map dbParamsMap) {
+			boolean logMessageParam, boolean logWarningParam, boolean logErrorParam, Map<String, String> dbParamsMap) {
 		logger = Logger.getLogger("MyLog");
 		logError = logErrorParam;
 		logMessage = logMessageParam;
@@ -38,73 +39,103 @@ public class JobLogger {
 
 	public static void LogMessage(String messageText, boolean message, boolean warning, boolean error)
 			throws Exception {
-		messageText.trim();
-		if (messageText == null || messageText.length() == 0) {
-			return;
-		}
-		if (!logToConsole && !logToFile && !logToDatabase) {
-			throw new Exception("Invalid configuration");
-		}
-		if ((!logError && !logMessage && !logWarning) || (!message && !warning && !error)) {
-			throw new Exception("Error or Warning or Message must be specified");
-		}
+		if (validarFormatoMensaje(messageText)) {
+			if (!logToConsole && !logToFile && !logToDatabase) {
+				throw new Exception("Invalid configuration");
+			}
+			if ((!logError && !logMessage && !logWarning) || (!message && !warning && !error)) {
+				throw new Exception("Error or Warning or Message must be specified");
+			}
 
-		Connection connection = null;
-		Properties connectionProps = new Properties();
-		connectionProps.put("user", dbParams.get("userName"));
-		connectionProps.put("password", dbParams.get("password"));
+			int t = 0;
+			if (message && logMessage) {
+				t = 1;
+			}
 
-		connection = DriverManager.getConnection("jdbc:" + dbParams.get("dbms") + "://" + dbParams.get("serverName")
-				+ ":" + dbParams.get("portNumber") + "/", connectionProps);
+			if (error && logError) {
+				t = 2;
+			}
 
-		int t = 0;
-		if (message && logMessage) {
-			t = 1;
-		}
+			if (warning && logWarning) {
+				t = 3;
+			}
 
-		if (error && logError) {
-			t = 2;
-		}
+			
 
-		if (warning && logWarning) {
-			t = 3;
-		}
+			String l = null;
+			File logFile = new File(dbParams.get("logFileFolder") + "/logFile.txt");
+			if (!logFile.exists()) {
+				logFile.createNewFile();
+			}
 
-		Statement stmt = connection.createStatement();
+			FileHandler fh = new FileHandler(dbParams.get("logFileFolder") + "/logFile.txt");
+			ConsoleHandler ch = new ConsoleHandler();
 
-		String l = null;
-		File logFile = new File(dbParams.get("logFileFolder") + "/logFile.txt");
-		if (!logFile.exists()) {
-			logFile.createNewFile();
-		}
+			if (error && logError) {
+				l = l + "error " + DateFormat.getDateInstance(DateFormat.LONG).format(new Date()) + messageText;
+			}
 
-		FileHandler fh = new FileHandler(dbParams.get("logFileFolder") + "/logFile.txt");
-		ConsoleHandler ch = new ConsoleHandler();
+			if (warning && logWarning) {
+				l = l + "warning " + DateFormat.getDateInstance(DateFormat.LONG).format(new Date()) + messageText;
+			}
 
-		if (error && logError) {
-			l = l + "error " + DateFormat.getDateInstance(DateFormat.LONG).format(new Date()) + messageText;
-		}
+			if (message && logMessage) {
+				l = l + "message " + DateFormat.getDateInstance(DateFormat.LONG).format(new Date()) + messageText;
+			}
 
-		if (warning && logWarning) {
-			l = l + "warning " + DateFormat.getDateInstance(DateFormat.LONG).format(new Date()) + messageText;
-		}
+			if (logToFile) {
+				logger.addHandler(fh);
+				logger.log(Level.INFO, messageText);
+			}
 
-		if (message && logMessage) {
-			l = l + "message " + DateFormat.getDateInstance(DateFormat.LONG).format(new Date()) + messageText;
-		}
+			if (logToConsole) {
+				logger.addHandler(ch);
+				logger.log(Level.INFO, messageText);
+			}
+			
+			
 
-		if (logToFile) {
-			logger.addHandler(fh);
-			logger.log(Level.INFO, messageText);
-		}
-
-		if (logToConsole) {
-			logger.addHandler(ch);
-			logger.log(Level.INFO, messageText);
+			
 		}
 
-		if (logToDatabase) {
-			stmt.executeUpdate("insert into Log_Values('" + message + "', " + String.valueOf(t) + ")");
+	}
+
+	public static boolean validarFormatoMensaje(String mensaje) {
+		if (mensaje == null) {
+			return false;
+		} else if (mensaje.trim().length() == 0) {
+			return false;
+		} else {
+			return true;
+		}
+
+	}
+
+	public static Connection getConexionBD() {
+
+		if (conexion == null) {
+			Properties connectionProps = new Properties();
+			connectionProps.put("user", dbParams.get("userName"));
+			connectionProps.put("password", dbParams.get("password"));
+
+			try {				
+				conexion = DriverManager.getConnection("jdbc:" + dbParams.get("dbms") + "://" + dbParams.get("serverName")
+						+ ":" + dbParams.get("portNumber") + "/", connectionProps);
+			} catch (SQLException e) {
+				e.printStackTrace();
+				System.out.println("Hubo un error en la conexion con la Base de Datos");				
+			}			
+		}
+		return conexion;
+	}
+	
+	public static void registrarenBD(String mensaje, int tipoMensaje) throws SQLException {
+		if (getConexionBD()!=null) {
+			Statement stmt = getConexionBD().createStatement();
+			stmt.executeUpdate("insert into Log_Values('" + mensaje + "', " + String.valueOf(tipoMensaje) + ")");
+			System.out.println("Mensaje registrado en la BD");
+		} else {
+			System.out.println("No se pudo registrar el mensaje en la BD");
 		}
 	}
 }
